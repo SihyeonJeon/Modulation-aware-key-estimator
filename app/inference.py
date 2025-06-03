@@ -102,8 +102,12 @@ def run_inference(wav_path, model, target_key_index=0):
         region_logits = torch.cat(region_logits, dim=0)
         mean_probs = region_logits.mean(dim=0)
         region_key = mean_probs.argmax().item()
+        start_time = start_frame * hop_length / sr
+        end_time = end_frame * hop_length / sr
+        start_str = f"{int(start_time // 60):02}:{int(start_time % 60):02}"
+        end_str = f"{int(end_time // 60):02}:{int(end_time % 60):02}"
 
-        print(f"Region {i+1}: [{start_frame}:{end_frame}]")
+        print(f"Region {i+1}: [{start_str} - {end_str}]")
         print(f"  Mean Probabilities: {mean_probs.tolist()}")
         print(f"  Assigned Key Index: {region_key} ({keys_linear[region_key].upper()})\n")
 
