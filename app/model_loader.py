@@ -1,5 +1,5 @@
 import torch
-from your_model_file import MultiStreamKeyPredictor  # 🔥 반드시 경로 맞춰 수정
+from model import MultiStreamKeyPredictor
 
 def load_model(checkpoint_path):
     device = "cuda" if torch.cuda.is_available() else "cpu"
