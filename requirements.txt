@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+torch
+torchaudio
+librosa
+essentia
+yt-dlp
+numpy<2
+noisereduce
