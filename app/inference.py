@@ -14,7 +14,7 @@ def run_inference(wav_path, model, target_key_index=0):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     keys_linear = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
     prob_threshold = 0.32
-    min_distance = 256  # 🔥 최소 간격 설정
+    min_distance = 12  # 🔥 최소 간격 설정
 
     def frame_to_time(frame_index):
         return frame_index * hop_length / sr
@@ -79,17 +79,21 @@ def run_inference(wav_path, model, target_key_index=0):
     for i in range(len(region_boundaries) - 1):
         start_frame = region_boundaries[i]
         end_frame = region_boundaries[i + 1]
-        if end_frame - start_frame < window_size:
-            print(f"⚠️ Skipping short region: [{start_frame}:{end_frame}] (too short)")
-            continue
 
-        region_windows = []
-        for start in range(start_frame, end_frame - window_size + 1, stride):
-            window_feats = feats_full[start:start+window_size]
-            region_windows.append(window_feats)
+        if end_frame - start_frame < window_size:
+            window_feats = feats_full[start_frame:end_frame]
+            pad_len = window_size - (end_frame - start_frame)
+            window_feats = torch.nn.functional.pad(window_feats, (0,0,0,pad_len))
+            region_windows = [window_feats]
+        else:
+            region_windows = []
+            for start in range(start_frame, end_frame - window_size + 1, stride):
+                window_feats = feats_full[start:start+window_size]
+                region_windows.append(window_feats)
 
         if not region_windows:
             print(f"⚠️ Region [{start_frame}:{end_frame}] too short for windowing.")
+            region_keys.append(-1)  # dummy
             continue
 
         region_logits = []
@@ -103,11 +107,20 @@ def run_inference(wav_path, model, target_key_index=0):
         mean_probs = region_logits.mean(dim=0)
         region_key = mean_probs.argmax().item()
 
-        print(f"Region {i+1}: [{start_frame}:{end_frame}]")
+        start_time = frame_to_time(start_frame)
+        end_time = frame_to_time(end_frame)
+
+        start_min = int(start_time // 60)
+        start_sec = start_time % 60
+        end_min = int(end_time // 60)
+        end_sec = end_time % 60
+
+        print(f"Region {i+1}: [{start_min:02d}:{start_sec:05.2f} - {end_min:02d}:{end_sec:05.2f}]")
         print(f"  Mean Probabilities: {mean_probs.tolist()}")
         print(f"  Assigned Key Index: {region_key} ({keys_linear[region_key].upper()})\n")
 
         region_keys.append(region_key)
+
 
     # Pitch shift (region-based)
     shifted_waveform = pitch_shift_segments(
