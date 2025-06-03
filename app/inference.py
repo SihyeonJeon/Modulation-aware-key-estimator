@@ -13,7 +13,7 @@ def run_inference(wav_path, model, target_key_index=0):
     hop_length = 512
     device = "cuda" if torch.cuda.is_available() else "cpu"
     keys_linear = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
-    prob_threshold = 0.35
+    prob_threshold = 0.32
 
     def frame_to_time(frame_index):
         return frame_index * hop_length / sr
