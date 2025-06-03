@@ -13,7 +13,8 @@ def run_inference(wav_path, model, target_key_index=0):
     hop_length = 512
     device = "cuda" if torch.cuda.is_available() else "cpu"
     keys_linear = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
-    prob_threshold = 0.32
+    prob_threshold = 0.35
+    min_distance = 256  # 🔥 최소 간격 설정
 
     def frame_to_time(frame_index):
         return frame_index * hop_length / sr
@@ -24,11 +25,11 @@ def run_inference(wav_path, model, target_key_index=0):
         waveform = waveform.mean(dim=0, keepdim=True)
     if original_sr != sr:
         waveform = torchaudio.transforms.Resample(original_sr, sr)(waveform)
-    processed_waveform = preprocess_waveform(waveform, sr=sr)
+    waveform = preprocess_waveform(waveform, sr=sr)
 
     # Feature extraction
-    chroma = compute_chromagram(processed_waveform, sr=sr)
-    hpcp = compute_hpcp(processed_waveform, sr=sr)
+    chroma = compute_chromagram(waveform, sr=sr)
+    hpcp = compute_hpcp(waveform, sr=sr)
     min_len = min(chroma.shape[0], hpcp.shape[0])
     feats_full = torch.cat([chroma[:min_len], hpcp[:min_len]], dim=1)
 
@@ -48,9 +49,7 @@ def run_inference(wav_path, model, target_key_index=0):
     logits_tensor = torch.cat(logits_list, dim=0)  # [N, 12]
 
     # Modulation Point Detection
-    max_prob_diff = 0
-    mod_point_index = -1
-
+    mod_point_candidates = []
     for i in range(len(windows) - 16):
         left_probs = logits_tensor[i]
         right_probs = logits_tensor[i + 16]
@@ -59,20 +58,21 @@ def run_inference(wav_path, model, target_key_index=0):
 
         if left_key != right_key:
             prob_diff = torch.abs(left_probs - right_probs).sum().item()
-            if prob_diff >= prob_threshold and prob_diff > max_prob_diff:
-                max_prob_diff = prob_diff
-                mod_point_index = i + 16
+            if prob_diff >= prob_threshold:
+                mod_point_candidates.append((i + 16, prob_diff))
 
-    if mod_point_index >= 0:
-        mod_frames = [windows[mod_point_index]]
-    else:
-        mod_frames = []
+    # 정렬 및 min_distance 필터링
+    mod_point_candidates.sort(key=lambda x: -x[1])  # prob_diff 내림차순
+    selected_mod_frames = []
+    for idx, _ in mod_point_candidates:
+        if all(abs(idx - sel) >= min_distance for sel in selected_mod_frames):
+            selected_mod_frames.append(idx)
 
-    print("Detected Modulation Point (frames):", mod_frames)
+    mod_frames = [windows[i] for i in selected_mod_frames]
+    print("Detected Modulation Points (frames):", mod_frames)
 
     # Region Split & Key Assignment
-    region_boundaries = [0] + mod_frames + [feats_full.shape[0]]
-    region_boundaries = sorted(region_boundaries)
+    region_boundaries = [0] + sorted(mod_frames) + [feats_full.shape[0]]
     region_keys = []
 
     print("===== Region Split & Key Assignment =====")
@@ -102,12 +102,8 @@ def run_inference(wav_path, model, target_key_index=0):
         region_logits = torch.cat(region_logits, dim=0)
         mean_probs = region_logits.mean(dim=0)
         region_key = mean_probs.argmax().item()
-        start_time = start_frame * hop_length / sr
-        end_time = end_frame * hop_length / sr
-        start_str = f"{int(start_time // 60):02}:{int(start_time % 60):02}"
-        end_str = f"{int(end_time // 60):02}:{int(end_time % 60):02}"
 
-        print(f"Region {i+1}: [{start_str} - {end_str}]")
+        print(f"Region {i+1}: [{start_frame}:{end_frame}]")
         print(f"  Mean Probabilities: {mean_probs.tolist()}")
         print(f"  Assigned Key Index: {region_key} ({keys_linear[region_key].upper()})\n")
 
