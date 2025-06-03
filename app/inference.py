@@ -13,7 +13,7 @@ def run_inference(wav_path, model, target_key_index=0):
     hop_length = 512
     device = "cuda" if torch.cuda.is_available() else "cpu"
     keys_linear = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
-    prob_threshold = 0.3
+    prob_threshold = 0.35
 
     def frame_to_time(frame_index):
         return frame_index * hop_length / sr
@@ -24,11 +24,11 @@ def run_inference(wav_path, model, target_key_index=0):
         waveform = waveform.mean(dim=0, keepdim=True)
     if original_sr != sr:
         waveform = torchaudio.transforms.Resample(original_sr, sr)(waveform)
-    waveform = preprocess_waveform(waveform, sr=sr)
+    processed_waveform = preprocess_waveform(waveform, sr=sr)
 
     # Feature extraction
-    chroma = compute_chromagram(waveform, sr=sr)
-    hpcp = compute_hpcp(waveform, sr=sr)
+    chroma = compute_chromagram(processed_waveform, sr=sr)
+    hpcp = compute_hpcp(processed_waveform, sr=sr)
     min_len = min(chroma.shape[0], hpcp.shape[0])
     feats_full = torch.cat([chroma[:min_len], hpcp[:min_len]], dim=1)
 
