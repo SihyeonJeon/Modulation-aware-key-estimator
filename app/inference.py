@@ -121,7 +121,6 @@ def run_inference(wav_path, model, target_key_index=0):
 
         region_keys.append(region_key)
 
-
     # Pitch shift (region-based)
     shifted_waveform = pitch_shift_segments(
         waveform,
