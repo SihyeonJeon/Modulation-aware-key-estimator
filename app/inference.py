@@ -13,23 +13,23 @@ def run_inference(wav_path, model, target_key_index=0):
     hop_length = 512
     device = "cuda" if torch.cuda.is_available() else "cpu"
     keys_linear = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
-    prob_threshold = 0.32
+    prob_threshold = 0.35
     min_distance = 12  # 🔥 최소 간격 설정
 
     def frame_to_time(frame_index):
         return frame_index * hop_length / sr
 
     # Load waveform
-    waveform, original_sr = torchaudio.load(wav_path)
-    if waveform.shape[0] > 1:
-        mono_waveform = waveform.mean(dim=0, keepdim=True)
+    waveform_origin, original_sr = torchaudio.load(wav_path)
+    if waveform_origin.shape[0] > 1:
+        waveform_origin = waveform_origin.mean(dim=0, keepdim=True)
     if original_sr != sr:
-        mono_waveformwaveform = torchaudio.transforms.Resample(original_sr, sr)(waveform)
-    preprocessed_waveform = preprocess_waveform(mono_waveform, sr=sr)
+        waveform_origin = torchaudio.transforms.Resample(original_sr, sr)(waveform_origin)
+    waveform = preprocess_waveform(waveform_origin, sr=sr)
 
     # Feature extraction
-    chroma = compute_chromagram(preprocessed_waveform, sr=sr)
-    hpcp = compute_hpcp(preprocessed_waveform, sr=sr)
+    chroma = compute_chromagram(waveform, sr=sr)
+    hpcp = compute_hpcp(waveform, sr=sr)
     min_len = min(chroma.shape[0], hpcp.shape[0])
     feats_full = torch.cat([chroma[:min_len], hpcp[:min_len]], dim=1)
 
@@ -123,7 +123,7 @@ def run_inference(wav_path, model, target_key_index=0):
 
     # Pitch shift (region-based)
     shifted_waveform = pitch_shift_segments(
-        waveform,
+        waveform_origin,
         sr,
         region_boundaries,
         region_keys,
@@ -135,6 +135,7 @@ def run_inference(wav_path, model, target_key_index=0):
     output_path = os.path.splitext(wav_path)[0] + f"_shifted_{keys_linear[target_key_index]}.wav"
     torchaudio.save(output_path, shifted_waveform, sr)
     print(f"Pitch-shifted file saved at: {output_path}")
+    
 
     # 🔥 Build region info
     region_infos = []
