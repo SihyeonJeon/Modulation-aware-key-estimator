@@ -8,19 +8,12 @@ import os
 import re
 import glob
 
+
 def clean_filename(name):
     name_wo_ext = os.path.splitext(name)[0]
     name_ascii = re.sub(r"[^A-Za-z0-9_]", "_", name_wo_ext)
     name_ascii = re.sub(r"_+", "_", name_ascii)
     return name_ascii.lower()
-
-def get_unique_filename(base_name, target_dir, ext=".wav"):
-    candidate = f"{base_name}{ext}"
-    i = 2
-    while os.path.exists(os.path.join(target_dir, candidate)):
-        candidate = f"{base_name}_{i}{ext}"
-        i += 1
-    return candidate
 
 def finalize_downloaded_wav(output_dir):
     wav_files = glob.glob(os.path.join(output_dir, "*.wav"))
@@ -28,14 +21,21 @@ def finalize_downloaded_wav(output_dir):
         raise FileNotFoundError("No .wav files found in the directory.")
 
     latest_file = max(wav_files, key=os.path.getctime)
-    base_name = clean_filename(os.path.basename(latest_file))
-    unique_name = get_unique_filename(base_name, output_dir)
-    dst = os.path.join(output_dir, unique_name)
+
+    user_filename = input("노래 이름 입력(미입력시 자동 생성): ").strip()
+    if not user_filename:
+        user_filename = clean_filename(os.path.basename(latest_file))
+        print(f"이름을 입력하지 않아 자동 이름 생성됨: {user_filename}")
+
+    dst = os.path.join(output_dir, f"{user_filename}.wav")
+
+    # 🔥 중복 검사: 이미 존재하면 오류 발생
+    if os.path.exists(dst):
+        raise Exception("⚠️이미 존재하는 노래 이름입니다⚠️")
 
     os.rename(latest_file, dst)
-    print(f"파일 정리 완료:\n → 원본: {latest_file}\n → 정리된 이름: {dst}")
+    print(f"WAV 파일 저장 완료:{dst}")
     return dst
-
 
 def apply_eq_filter(waveform, sr=16000, low_cutoff=100, high_cutoff=8000, q=0.707):
     """
