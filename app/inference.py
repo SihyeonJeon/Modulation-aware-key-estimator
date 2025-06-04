@@ -22,14 +22,14 @@ def run_inference(wav_path, model, target_key_index=0):
     # Load waveform
     waveform, original_sr = torchaudio.load(wav_path)
     if waveform.shape[0] > 1:
-        waveform = waveform.mean(dim=0, keepdim=True)
+        mono_waveform = waveform.mean(dim=0, keepdim=True)
     if original_sr != sr:
-        waveform = torchaudio.transforms.Resample(original_sr, sr)(waveform)
-    waveform = preprocess_waveform(waveform, sr=sr)
+        mono_waveformwaveform = torchaudio.transforms.Resample(original_sr, sr)(waveform)
+    preprocessed_waveform = preprocess_waveform(mono_waveform, sr=sr)
 
     # Feature extraction
-    chroma = compute_chromagram(waveform, sr=sr)
-    hpcp = compute_hpcp(waveform, sr=sr)
+    chroma = compute_chromagram(preprocessed_waveform, sr=sr)
+    hpcp = compute_hpcp(preprocessed_waveform, sr=sr)
     min_len = min(chroma.shape[0], hpcp.shape[0])
     feats_full = torch.cat([chroma[:min_len], hpcp[:min_len]], dim=1)
 
