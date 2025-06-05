@@ -15,26 +15,25 @@ def clean_filename(name):
     name_ascii = re.sub(r"_+", "_", name_ascii)
     return name_ascii.lower()
 
+
 def finalize_downloaded_wav(output_dir):
     wav_files = glob.glob(os.path.join(output_dir, "*.wav"))
     if not wav_files:
         raise FileNotFoundError("No .wav files found in the directory.")
 
     latest_file = max(wav_files, key=os.path.getctime)
+    base_filename = clean_filename(os.path.basename(latest_file))
 
-    user_filename = input("노래 이름 입력(미입력시 자동 생성): ").strip()
-    if not user_filename:
-        user_filename = clean_filename(os.path.basename(latest_file))
-        print(f"이름을 입력하지 않아 자동 이름 생성됨: {user_filename}")
+    dst = os.path.join(output_dir, f"{base_filename}.wav")
 
-    dst = os.path.join(output_dir, f"{user_filename}.wav")
-
-    # 🔥 중복 검사: 이미 존재하면 오류 발생
-    if os.path.exists(dst):
-        raise Exception("⚠️이미 존재하는 노래 이름입니다⚠️")
+    # 중복 검사 및 번호 붙이기
+    count = 1
+    while os.path.exists(dst):
+        dst = os.path.join(output_dir, f"{base_filename}_{count}.wav")
+        count += 1
 
     os.rename(latest_file, dst)
-    print(f"WAV 파일 저장 완료:{dst}")
+    print(f"WAV 파일 저장 완료: {dst}")
     return dst
 
 def apply_eq_filter(waveform, sr=16000, low_cutoff=100, high_cutoff=8000, q=0.707):
