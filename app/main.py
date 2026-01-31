@@ -8,7 +8,7 @@ from inference import run_inference
 from utils import finalize_downloaded_wav
 
 app = FastAPI()
-model_checkpoint_path = "model_keepgoing.pt"
+model_checkpoint_path = "key_model.pt"
 model = load_model(model_checkpoint_path)  # ✅ FastAPI 실행 시 한 번만 로드
 
 class YoutubeRequest(BaseModel):
