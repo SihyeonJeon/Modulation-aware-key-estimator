@@ -34,23 +34,53 @@ def run_inference(wav_path, model, target_key_index=0):
     feats_full = torch.cat([chroma[:min_len], hpcp[:min_len]], dim=1)
 
     # Sliding window inference
-    windows = []
+    input_batch = []
+    windows = []  # start 인덱스를 저장할 리스트
+
+    # stride: 64는 겹치는 구간이 많아 정확도는 높지만 연산량이 많습니다. 
+    # 속도가 중요하다면 128이나 256으로 늘려도 무방합니다.
     for start in range(0, feats_full.shape[0] - window_size + 1, stride):
-        windows.append(start)
+        window = feats_full[start : start + window_size]
+        input_batch.append(window)
+        windows.append(start)  # [중요] 나중에 시간 계산을 위해 인덱스 저장 필수
 
-    logits_list = []
+    # 예외 처리: 곡이 너무 짧아서 윈도우가 하나도 안 만들어진 경우
+    if not input_batch:
+        print("Audio is too short to analyze.")
+        return None # 또는 적절한 에러 처리
+
+    # 리스트를 하나의 큰 텐서로 변환 [N, Window_Size(1024), Feat_Dim(24)]
+    input_tensor = torch.stack(input_batch).to(device)
+
+    # ---------------------------------------------------------
+    # 2. Real Batch Inference (여기가 핵심)
+    # ---------------------------------------------------------
+    # for문 없이 한 번에 모델에 넣습니다.
+    # N이 약 100~200개 정도이므로(4분 곡 기준), 미니배치 없이 한 번에 넣어도 메모리 충분합니다.
     with torch.no_grad():
-        for start in windows:
-            window_feats = feats_full[start:start+window_size]
-            feats = window_feats.unsqueeze(0).to(device)
-            logits = model(feats)
-            probs = F.softmax(logits, dim=-1)
-            logits_list.append(probs.cpu())
-    logits_tensor = torch.cat(logits_list, dim=0)  # [N, 12]
+        logits = model(input_tensor)    # [N, 12] 결과가 한 번에 나옴
+        probs = F.softmax(logits, dim=-1)
+    
+    # 결과를 CPU로 가져옴
+    logits_tensor = probs.cpu()  # [N, 12]
 
-    # Modulation Point Detection
+    # ---------------------------------------------------------
+    # 3. Modulation Point Detection (기존 로직 유지)
+    # ---------------------------------------------------------
     mod_point_candidates = []
-    for i in range(len(windows) - 16):
+    
+    # 벡터화된 연산으로 속도 더 높이기 (옵션)
+    # 파이썬 for문도 N이 작아서 문제없으나, 아래처럼 짜면 더 깔끔합니다.
+    # N = logits_tensor.shape[0]
+    # margin = 16
+    # if N > margin:
+    #     left_probs = logits_tensor[:-margin]
+    #     right_probs = logits_tensor[margin:]
+    #     ... (이후 로직은 동일)
+
+    # 기존 for문 로직 사용 시:
+    for i in range(len(windows) - 16): 
+        # windows 리스트가 채워져 있어야 이 루프가 돕니다.
         left_probs = logits_tensor[i]
         right_probs = logits_tensor[i + 16]
         left_key = left_probs.argmax().item()
