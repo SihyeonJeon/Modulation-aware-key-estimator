@@ -53,11 +53,11 @@ The inference result contains:
 - Region boundaries are approximate and should be treated as candidate
   modulation points, not score-level annotations.
 
-## Data And Reproducibility
+## Training Data And Reproducibility
 
-The original training notebook is retained for historical context. Public
-portfolio use should rely on the package, CLI, API, and manifest-based
-evaluation script rather than notebook state.
+The repository currently ships the inference package, model architecture,
+release checkpoint, and manifest-based evaluation script. It does not yet ship
+the original training code, training manifest, dataset list, or training logs.
 
 The inference checkpoint is distributed as a GitHub Release asset and verified
 with SHA-256 before loading.
