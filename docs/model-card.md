@@ -59,6 +59,8 @@ The original training notebook is retained for historical context. Public
 portfolio use should rely on the package, CLI, API, and manifest-based
 evaluation script rather than notebook state.
 
+The inference checkpoint is distributed as a GitHub Release asset and verified
+with SHA-256 before loading.
+
 Use `scripts/evaluate_manifest.py` with a labeled CSV to produce a reproducible
 accuracy report.
-

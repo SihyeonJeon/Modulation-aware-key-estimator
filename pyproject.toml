@@ -29,6 +29,3 @@ mod-key-estimator = "modulation_key_estimator.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["modulation_key_estimator*"]
-
-[tool.setuptools.package-data]
-modulation_key_estimator = ["assets/*.pt"]

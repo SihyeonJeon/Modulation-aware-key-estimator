@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from .download import download_youtube_audio
 from .inference import run_inference
 from .keys import KEY_NAMES, key_to_index
-from .model_loader import default_checkpoint_path, load_model
+from .model_loader import configured_checkpoint_path, load_model
 
 app = FastAPI(
     title="Modulation-Aware Key Estimator",
@@ -53,7 +53,7 @@ def _target_key_index(target_key: str) -> int:
 
 @app.get("/health")
 def health():
-    checkpoint = default_checkpoint_path()
+    checkpoint = configured_checkpoint_path()
     return {
         "status": "ok",
         "checkpoint": str(checkpoint),

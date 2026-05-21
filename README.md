@@ -34,8 +34,14 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-The trained checkpoint is included at
-`modulation_key_estimator/assets/key_model.pt`.
+The trained checkpoint downloads on first use from the GitHub release and is
+cached under `~/.cache/modulation-aware-key-estimator/`.
+
+To use a local checkpoint instead:
+
+```bash
+MODEL_CHECKPOINT_PATH=/path/to/key_model.pt mod-key-estimator --wav song.wav
+```
 
 ## CLI
 
@@ -95,6 +101,7 @@ docker run --rm -p 8000:8000 modulation-key-estimator
 - Output: 12-class key probability per window
 - Regioning: detects probability shifts across neighboring windows, then
   re-estimates a key per region
+- Checkpoint: GitHub Release asset, SHA-256 verified on download
 
 See [docs/model-card.md](docs/model-card.md) for intended use, limitations, and
 failure modes.
