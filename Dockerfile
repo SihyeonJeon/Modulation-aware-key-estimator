@@ -1,11 +1,21 @@
-FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+FROM python:3.11-slim
 
-WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MOD_KEY_DATA_DIR=/tmp
 
-COPY requirements.txt .
-RUN apt-get update && apt-get install -y ffmpeg
-RUN pip install --no-cache-dir -r requirements.txt
+WORKDIR /workspace
 
-COPY . .
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+COPY requirements.txt pyproject.toml README.md ./
+COPY modulation_key_estimator ./modulation_key_estimator
+
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --no-deps -e .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "modulation_key_estimator.api:app", "--host", "0.0.0.0", "--port", "8000"]

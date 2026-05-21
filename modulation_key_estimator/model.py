@@ -1,29 +1,25 @@
-import torch.nn as nn
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
+
 
 class MultiStreamKeyPredictor(nn.Module):
     def __init__(self, d_model=128, nhead=4, num_layers=4, num_classes=12, dropout=0.3):
         super().__init__()
 
-        # Chroma Stream
         self.chroma_proj = nn.Linear(12, d_model)
         self.chroma_encoder = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model, nhead, dropout=dropout, batch_first=True),
-            num_layers=num_layers
+            num_layers=num_layers,
         )
 
-        # HPCP Stream
         self.hpcp_proj = nn.Linear(12, d_model)
         self.hpcp_encoder = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model, nhead, dropout=dropout, batch_first=True),
-            num_layers=num_layers
+            num_layers=num_layers,
         )
 
-        # CLS Token
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
-
-        # Fusion + Attention Pooling
         self.fusion_fc = nn.Linear(d_model * 2, d_model)
         self.attention = nn.MultiheadAttention(embed_dim=d_model, num_heads=4, batch_first=True)
         self.fc_out = nn.Linear(d_model, num_classes, bias=False)
@@ -41,24 +37,22 @@ class MultiStreamKeyPredictor(nn.Module):
         fused = torch.cat([chroma_out, hpcp_out], dim=-1)
         fused = self.fusion_fc(fused)
 
-        B, T, D = fused.shape
-        cls_token = self.cls_token.expand(B, 1, D)
-        fused = torch.cat([cls_token, fused], dim=1)  # [B, T+1, D]
+        batch_size, _, dims = fused.shape
+        cls_token = self.cls_token.expand(batch_size, 1, dims)
+        fused = torch.cat([cls_token, fused], dim=1)
 
-        # Key padding mask 처리
         if src_key_padding_mask is not None:
             if src_key_padding_mask.dtype != torch.bool:
                 src_key_padding_mask = src_key_padding_mask.bool()
-            cls_padding = torch.zeros((B, 1), dtype=torch.bool, device=src_key_padding_mask.device)
+            cls_padding = torch.zeros((batch_size, 1), dtype=torch.bool, device=src_key_padding_mask.device)
             attn_mask = torch.cat([cls_padding, src_key_padding_mask], dim=1)
         else:
             attn_mask = None
 
         attn_out, _ = self.attention(fused, fused, fused, key_padding_mask=attn_mask)
 
-        pooled = attn_out[:, 0, :]  # [B, D]
+        pooled = attn_out[:, 0, :]
 
-        # Normalize & Linear projection
         pooled = F.normalize(pooled.float(), dim=-1).to(pooled.dtype)
         logits = F.linear(pooled, F.normalize(self.fc_out.weight.float(), dim=-1)).to(pooled.dtype)
 

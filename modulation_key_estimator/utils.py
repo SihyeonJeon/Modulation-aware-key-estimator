@@ -1,12 +1,13 @@
-import torch
-import torchaudio
-import numpy as np
-import librosa
-import noisereduce as nr
-from essentia.standard import Windowing, Spectrum, HPCP, FrameGenerator
 import os
 import re
 import glob
+
+import librosa
+import numpy as np
+import torch
+import torchaudio
+
+from .keys import shortest_semitone_shift
 
 
 def clean_filename(name):
@@ -17,7 +18,7 @@ def clean_filename(name):
 
 
 def finalize_downloaded_wav(output_dir):
-    wav_files = glob.glob(os.path.join(output_dir, "*.wav"))
+    wav_files = glob.glob(os.path.join(str(output_dir), "*.wav"))
     if not wav_files:
         raise FileNotFoundError("No .wav files found in the directory.")
 
@@ -26,20 +27,16 @@ def finalize_downloaded_wav(output_dir):
 
     dst = os.path.join(output_dir, f"{base_filename}.wav")
 
-    # 중복 검사 및 번호 붙이기
     count = 1
     while os.path.exists(dst):
         dst = os.path.join(output_dir, f"{base_filename}_{count}.wav")
         count += 1
 
     os.rename(latest_file, dst)
-    print(f"WAV 파일 저장 완료: {dst}")
     return dst
 
 def apply_eq_filter(waveform, sr=16000, low_cutoff=100, high_cutoff=8000, q=0.707):
-    """
-    Highpass + Lowpass 필터링을 적용합니다.
-    """
+    """Apply highpass and lowpass filtering."""
     waveform = torchaudio.functional.highpass_biquad(waveform, sr, low_cutoff, Q=q)
     if torch.isnan(waveform).any() or torch.isinf(waveform).any():
         waveform = torch.nan_to_num(waveform, nan=0.0, posinf=0.0, neginf=0.0)
@@ -49,9 +46,7 @@ def apply_eq_filter(waveform, sr=16000, low_cutoff=100, high_cutoff=8000, q=0.70
     return waveform
 
 def preprocess_waveform(waveform, sr=16000, target_rms=0.1, noise_reduce=True, eq_filter=True, low_cutoff=100, high_cutoff=8000):
-    """
-    EQ 필터링, RMS Normalization, Noise Reduction 포함 전체 전처리
-    """
+    """Apply EQ filtering, RMS normalization, and optional noise reduction."""
     if eq_filter:
         waveform = apply_eq_filter(waveform, sr, low_cutoff, high_cutoff)
     
@@ -61,16 +56,19 @@ def preprocess_waveform(waveform, sr=16000, target_rms=0.1, noise_reduce=True, e
     waveform = waveform * (target_rms / (rms + 1e-7))
     
     if noise_reduce:
-        y_np = waveform.squeeze().cpu().numpy()
-        y_denoised = nr.reduce_noise(y_np, sr=sr)
-        waveform = torch.tensor(y_denoised, dtype=torch.float32).unsqueeze(0)
+        try:
+            import noisereduce as nr
+
+            y_np = waveform.squeeze().cpu().numpy()
+            y_denoised = nr.reduce_noise(y_np, sr=sr)
+            waveform = torch.tensor(y_denoised, dtype=torch.float32).unsqueeze(0)
+        except Exception:
+            pass
     
     return waveform
 
 def compute_chromagram(waveform, sr=16000, n_fft=4096, hop_length=512):
-    """
-    librosa로 Chromagram 계산
-    """
+    """Compute a 12-bin chromagram with librosa."""
     y = waveform.squeeze().cpu().numpy()
     S = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length))
     chroma = librosa.feature.chroma_stft(S=S, sr=sr)
@@ -78,37 +76,38 @@ def compute_chromagram(waveform, sr=16000, n_fft=4096, hop_length=512):
     return chroma
 
 def compute_hpcp(waveform, sr=16000, frame_size=4096, hop_size=512):
-    """
-    Essentia로 HPCP 계산
-    """
+    """Compute 12-bin HPCP features, with a librosa fallback."""
     y = waveform.squeeze().cpu().numpy()
-    window = Windowing(type='hann')
-    spectrum = Spectrum(size=frame_size)
-    hpcp_extractor = HPCP(size=12, sampleRate=sr)
-    
-    hpcp_frames = []
-    for frame in FrameGenerator(y, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
-        w = window(frame)
-        mag = spectrum(w)
-        freqs = np.linspace(0, sr/2, len(mag))
-        hpcp = hpcp_extractor.compute(mag, freqs)
-        hpcp_frames.append(hpcp)
-    
-    hpcp_tensor = torch.tensor(np.stack(hpcp_frames), dtype=torch.float32)
-    return hpcp_tensor
+    try:
+        from essentia.standard import FrameGenerator, HPCP, Spectrum, Windowing
+
+        window = Windowing(type="hann")
+        spectrum = Spectrum(size=frame_size)
+        hpcp_extractor = HPCP(size=12, sampleRate=sr)
+
+        hpcp_frames = []
+        for frame in FrameGenerator(y, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+            w = window(frame)
+            mag = spectrum(w)
+            freqs = np.linspace(0, sr / 2, len(mag))
+            hpcp_frames.append(hpcp_extractor.compute(mag, freqs))
+
+        if not hpcp_frames:
+            raise ValueError("No HPCP frames produced.")
+        return torch.tensor(np.stack(hpcp_frames), dtype=torch.float32)
+    except Exception:
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_size, n_chroma=12)
+        return torch.tensor(chroma.T, dtype=torch.float32)
 
 def pitch_shift_segments(
     waveform, 
     sr, 
     region_boundaries, 
     region_keys, 
-    target_key_index=0,   # 기본 C key
+    target_key_index=0,
     keys_linear=None,
 ):
-    """
-    Region별 pitch shift 함수.
-    target_key_index: 사용자가 원하는 key index (0~11)
-    """
+    """Pitch-shift each detected region toward the target key."""
     hop_length = 512
     segments = []
 
@@ -125,29 +124,23 @@ def pitch_shift_segments(
         if end_sample > waveform.shape[1]:
             end_sample = waveform.shape[1]
 
-        # 🔥 원본 waveform에서 segment 추출
         segment_waveform = waveform[:, start_sample:end_sample].cpu().numpy().squeeze()
 
         region_key_index = region_keys[i]
-        shift = target_key_index - region_key_index
-
-        if shift < -4:
-            shift += 12
-
+        shift = shortest_semitone_shift(region_key_index, target_key_index)
 
         try:
             shifted_segment = librosa.effects.pitch_shift(
                 segment_waveform, sr=sr, n_steps=shift
             )
-        except Exception as e:
-            print(f"⚠️ pitch_shift 실패, region {i}, shift={shift}: {e}")
-            shifted_segment = segment_waveform  # fallback: 원본 사용
+        except Exception:
+            shifted_segment = segment_waveform
 
         shifted_segment = np.expand_dims(shifted_segment, axis=0)
         segments.append(torch.tensor(shifted_segment, dtype=torch.float32, device=waveform.device))
 
     if segments:
-        shifted_waveform = torch.cat(segments, dim=1)  # [1, total_samples]
+        shifted_waveform = torch.cat(segments, dim=1)
     else:
         shifted_waveform = waveform
 
