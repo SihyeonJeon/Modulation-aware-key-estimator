@@ -1,17 +1,14 @@
 # Modulation-Aware Key Estimator
 
-Estimate the key of songs that modulate.
+[![CI](https://github.com/SihyeonJeon/Modulation-aware-key-estimator/actions/workflows/ci.yml/badge.svg)](https://github.com/SihyeonJeon/Modulation-aware-key-estimator/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-This project detects likely key regions in an audio track, reports the key for
-each region, and can transpose every region into one target key. It is built
-around a two-stream Transformer that reads chroma and HPCP-style harmonic
-features instead of treating the whole song as one static key.
+Region-wise key estimation for songs that change key
 
-## Why It Exists
-
-Most key-estimation demos assume one song has one key. That breaks on music with
-clear modulation, borrowed sections, or long bridge changes. This repo keeps the
-modulation points visible:
+Most key-estimation demos force one global label onto a whole track. This repo
+keeps the section boundary visible: it estimates likely key regions, reports
+candidate modulation points, and can pitch-shift each region toward a target
+key.
 
 ```json
 {
@@ -24,6 +21,16 @@ modulation points visible:
 }
 ```
 
+## What It Does
+
+- extracts chroma and HPCP-style harmonic pitch-class features
+- runs a two-stream Transformer checkpoint
+- predicts 12 pitch-class keys per audio window
+- groups windows into likely key regions
+- exposes approximate modulation points
+- serves local CLI and FastAPI inference
+- downloads the release checkpoint with SHA-256 verification
+
 ## Install
 
 ```bash
@@ -34,24 +41,24 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-The trained checkpoint downloads on first use from the GitHub release and is
-cached under `~/.cache/modulation-aware-key-estimator/`.
+The checkpoint downloads on first use from the GitHub release and is cached
+under `~/.cache/modulation-aware-key-estimator/`.
 
-To use a local checkpoint instead:
+Use a local checkpoint instead:
 
 ```bash
-MODEL_CHECKPOINT_PATH=/path/to/key_model.pt mod-key-estimator --wav song.wav
+MODEL_CHECKPOINT_PATH=/path/to/key_model.pt mod-key-estimator --wav song.wav --json
 ```
 
 ## CLI
 
-Analyze a local file:
+Local file:
 
 ```bash
 mod-key-estimator --wav song.wav --target-key c --json
 ```
 
-Analyze a YouTube URL through `yt-dlp`:
+YouTube URL through `yt-dlp`:
 
 ```bash
 mod-key-estimator --youtube-url "https://www.youtube.com/watch?v=..." --target-key f#
@@ -72,17 +79,15 @@ uvicorn modulation_key_estimator.api:app --host 0.0.0.0 --port 8000
 ```
 
 ```bash
-curl -X POST http://localhost:8000/analyze-youtube \
-  -H "content-type: application/json" \
-  -d '{"youtube_url":"https://www.youtube.com/watch?v=...","target_key":"c"}'
-```
-
-For local files:
-
-```bash
 curl -X POST http://localhost:8000/analyze-file \
   -F "file=@song.wav" \
   -F "target_key=c"
+```
+
+```bash
+curl -X POST http://localhost:8000/analyze-youtube \
+  -H "content-type: application/json" \
+  -d '{"youtube_url":"https://www.youtube.com/watch?v=...","target_key":"c"}'
 ```
 
 ## Docker
@@ -92,16 +97,16 @@ docker build -t modulation-key-estimator .
 docker run --rm -p 8000:8000 modulation-key-estimator
 ```
 
-## Model
+## Model Surface
 
-- Input: mono audio, resampled to 16 kHz
-- Features: chroma + HPCP-style 12-bin harmonic features
-- Window: 1024 frames with 64-frame stride
-- Architecture: two-stream Transformer encoder with attention pooling
-- Output: 12-class key probability per window
-- Regioning: detects probability shifts across neighboring windows, then
-  re-estimates a key per region
-- Checkpoint: GitHub Release asset, SHA-256 verified on download
+| Item | Value |
+| --- | --- |
+| input | mono audio, resampled to 16 kHz |
+| features | chroma + HPCP-style 12-bin harmonic features |
+| architecture | two-stream Transformer encoder with attention pooling |
+| output | 12 pitch-class probabilities per window |
+| regioning | probability-shift grouping across neighboring windows |
+| checkpoint | GitHub Release asset with SHA-256 verification |
 
 See [docs/model-card.md](docs/model-card.md) for intended use, limitations, and
 failure modes.
@@ -114,8 +119,6 @@ Run a labeled manifest:
 python scripts/evaluate_manifest.py examples/manifest.example.csv --json
 ```
 
-Replace the example path with local labeled audio files before running.
-
 Expected CSV columns:
 
 ```csv
@@ -123,5 +126,16 @@ path,expected_key
 path/to/song.wav,c
 ```
 
-The script reports exact-key accuracy and per-file predictions. It intentionally
-does not ship a claimed benchmark number without the source manifest.
+The script reports exact pitch-class accuracy and per-file predictions. Replace
+the example manifest with local labeled audio before reporting a benchmark
+number.
+
+## Boundary
+
+This repo currently ships the inference package, model architecture, release
+checkpoint, and manifest-based evaluation script. It does not yet ship the
+original training code, training manifest, dataset list, or training logs.
+
+The checkpoint predicts pitch class only: `C`, `C#`, ..., `B`. It does not
+model major/minor, modal function, enharmonic spelling, or score-level harmonic
+analysis.
